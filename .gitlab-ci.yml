@@ -1,0 +1,65 @@
+include:
+  - local: '/scripts/build.yml'
+
+stages:
+  - pre-build
+  - build
+  - deploy
+
+pre-build:
+  image: node:20
+  tags:
+    - builder
+  stage: pre-build
+  when: manual
+  script:
+    - rm -rf .env
+    - apt install -y curl
+    - 'curl --header "PRIVATE-TOKEN: ${BOT_PRIVATE_TOKEN}" "https://gitlab.rockship.co/api/v4/projects/16/repository/files/frontend%2Fmock-interview%2Fprod%2F.env/raw?ref=master" > .env'
+    - npm install
+    - npm run build
+  artifacts:
+    paths:
+    - ./.next
+    - ./docker
+    - .env
+    expire_in: 15 mins
+  only:
+    - master
+
+build:
+  stage: build
+  needs:
+    - job: pre-build
+      artifacts: true
+  tags:
+    - builder
+  image:
+    name: gcr.io/kaniko-project/executor:v1.10.0-debug
+    entrypoint: ['']
+  variables:
+    TAG: prod
+    IMAGE_NAME: "${ECR_URL}/mock-interview-fe"
+    BUILD_ARG: "--build-arg BOT_PRIVATE_TOKEN=${BOT_PRIVATE_TOKEN}"
+  script:
+    - !reference [.build_docker_image, script]
+  only:
+    - master
+
+trigger_deploy_prod:
+  stage: deploy
+  variables:
+    PROJECT: mock-interview 
+    ECR_NAME: mock-interview-fe
+    SERVICE: frontend
+    DEPLOY_TAG: prod
+    TAG: prod
+  needs:
+    - job: build
+      artifacts: false
+  trigger:
+    project: lannisport/aegon
+    branch: master
+
+  only: 
+    - master
